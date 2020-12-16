@@ -1,0 +1,1 @@
+## EM + GMM for image segmentation
