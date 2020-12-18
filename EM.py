@@ -48,10 +48,14 @@ class EM:
             self.likelihood = likelihood_T.T
 
             # Expectation
+            evidence = np.dot(self.likelihood, self.weight)
             for i in range(k):
-                for j in range(len(data)):
-                    evidence = np.dot(self.likelihood[j], self.weight)
-                    self.posterior[i][j] = self.likelihood[j][i] * self.weight[i] / evidence
+                self.posterior[i] = np.multiply(likelihood_T[i], self.weight[i]) / evidence
+
+            # for i in range(k):
+            #     for j in range(len(data)):
+            #         evidence = np.dot(self.likelihood[j], self.weight)
+            #         self.posterior[i][j] = self.likelihood[j][i] * self.weight[i] / evidence
             # Maximization Step
             for i in range(k):
                 posterior_sum = np.sum(self.posterior[i])
