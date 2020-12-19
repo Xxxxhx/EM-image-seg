@@ -10,6 +10,12 @@ def norm_and_extract_features(img, rgb_weight=0.4):
 
     count = 0
     scaled_color = img / img.max()
+
+    # pix_coordinates = np.zeros(img.shape[:-1], [('h', int), ('w', int)])
+    # pix_coordinates['h'], pix_coordinates['w'] = np.meshgrid(np.arange(img.shape[1]),
+    #                                                          np.arange(img.shape[0]))
+    # pix_coordinates = pix_coordinates.T.reshape(-1, 2)
+
     for i in range(x):
         for j in range(y):
             position = np.array([i / x, j / y])
