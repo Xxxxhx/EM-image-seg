@@ -80,9 +80,9 @@ class EM:
 
         self.set_parameters(means, covariances, weights)
 
-    def print_verbose(self, iter, change):
+    def print_verbose(self, iter, change, end=False):
         if self.verbose:
-            if iter % 5 == 0:
+            if iter % 10 == 0 or end:
                 print('%d iter\t time:%.1f\t change:%.2f' % (iter, time() - self.start_time, change))
 
     def fit(self, data):
@@ -137,13 +137,13 @@ class EM:
             # log likelihood
             if iter == 0:
                 previous_likelihood_sum = log_likelihood_sum(self.likelihood, weights)
-                print('previous_likelihood_sum: %f' % previous_likelihood_sum)
             else:
                 current_likelihood_sum = log_likelihood_sum(self.likelihood, weights)
                 change = abs(current_likelihood_sum - previous_likelihood_sum)
                 # if abs(current_likelihood_sum - previous_likelihood_sum)  < 0.2:
                 previous_likelihood_sum = current_likelihood_sum
                 if change <= self.threshold:
+                    self.print_verbose(iter, change, end=True)
                     break
                 self.print_verbose(iter, change)
         #     else:
