@@ -6,36 +6,40 @@ reg_cov = 1e-6  # add to the diagonal of covariance for Non-negative regularizat
 
 
 # judge whether the result converges.
-def log_likelihood(likelihood, likelihood_index):
+def log_likelihood_sum(likelihood, weights):
     # product = 1
     # for i in range(len(likelihood_index)):
     #     product = product * likelihood[i][likelihood_index[i]]
     # return np.log(product)
-    max_likelihood_arr = likelihood[range(len(likelihood)), likelihood_index]
-    return np.log(max_likelihood_arr).sum
+    # max_likelihood_arr = likelihood[range(len(likelihood)), likelihood_index]
+    probability = (likelihood*weights).sum(axis=1)
+    log_prob_sum = np.log(probability).sum()
+    return log_prob_sum
 
 
-def _estimate_gaussian_parameters(X, res):
-    nk = res.sum(axis=0) + 10 * np.finfo(res.dtype).eps
-    means = np.dot(res.T, X) / nk[:, np.newaxis]
-    covariances = _estimate_gaussian_covariances(res, X, nk, means)
-    return nk, means, covariances
+def _estimate_gaussian_parameters(data, posterior):
+    post_sum = posterior.sum(axis=0) + 10 * np.finfo(posterior.dtype).eps  # weights of component.
+    means = np.dot(posterior.T, data) / post_sum[:, np.newaxis]
+    covariances = _estimate_gaussian_covariances(posterior, data, post_sum, means)
+    post_sum /= data.shape[0]
+    return post_sum, means, covariances
 
 
-def _estimate_gaussian_covariances(resp, X, nk, means):
+def _estimate_gaussian_covariances(posterior, data, nk, means):
     n_components, n_features = means.shape
     covariances = np.empty((n_components, n_features, n_features))
     for k in range(n_components):
-        diff = X - means[k]
-        covariances[k] = np.dot(resp[:, k] * diff.T, diff) / nk[k]
-        covariances[k].flat[::n_features + 1] += reg_cov
+        diff = data - means[k]
+        covariances[k] = np.dot(posterior[:, k] * diff.T, diff) / nk[k]
+        covariances[k].flat[::n_features + 1] += reg_cov  # add reg_cov on the diagonal line.
     return covariances
 
 
 class EM:
 
-    def __init__(self, max_iter=10, random_seed=26,k=2, init_params='kmeans', verbose=False):
+    def __init__(self, max_iter=30, threshold=1e-2, random_seed=26, k=2, init_params='kmeans', verbose=False):
         self.max_iter = max_iter
+        self.threshold = threshold  # iteration stop threshold
         self.random_seed = random_seed
         self.init_params = init_params
         self.n_components = k
@@ -47,6 +51,8 @@ class EM:
         self.weights = weight
 
     def initialize(self, data):
+        # Siyi's Part: Initialize the mean, the variance and the weight for each cluster
+        # Comment the following code and implement a better initialization algorithm
         k = self.n_components
         n_samples = data.shape[0]
         if self.init_params == 'kmeans':
@@ -54,11 +60,8 @@ class EM:
             label = kMeanCluster(num_clusters=self.n_components, ).fit(data).label_
             res[np.arange(n_samples), label] = 1
             weights, means, covariances = _estimate_gaussian_parameters(data, res)
-            weights /= n_samples
 
         elif self.init_params == 'random':
-            # Siyi's Part: Initialize the mean, the variance and the weight for each cluster
-            # Comment the following code and implement a better initialization algorithm
             means = np.ndarray(shape=(k, data.shape[1]), dtype=float)
             covariances = np.ndarray(shape=(k, data.shape[1], data.shape[1]), dtype=float)
             weights = np.ones(shape=k) / k
@@ -77,8 +80,13 @@ class EM:
 
         self.set_parameters(means, covariances, weights)
 
+    def print_verbose(self, iter, change, end=False):
+        if self.verbose:
+            if iter % 10 == 0 or end:
+                print('%d iter\t time:%.1f\t change:%.2f' % (iter, time() - self.start_time, change))
+
     def fit(self, data):
-        curTime = time()
+        self.start_time = time()
         k = self.n_components
         n_samples = data.shape[0]
         if len(data) < k:
@@ -86,17 +94,15 @@ class EM:
             return
 
         self.initialize(data)
-
         # posterior: P(theta | X) likelihood: P(X | theta)
         self.likelihood = np.ndarray(shape=(len(data), k), dtype=float)
         self.posterior = np.ndarray(shape=(k, len(data)), dtype=float)
-        old_likelihood = np.ndarray(shape=(len(data), k), dtype=float)
-        old_maximum_likelihood_index = np.ndarray(shape=data.shape[0], dtype=int)
-        new_maximum_likelihood_index = np.ndarray(shape=data.shape[0], dtype=int)
+        # old_likelihood = np.ndarray(shape=(len(data), k), dtype=float)
+        # old_maximum_likelihood_index = np.ndarray(shape=data.shape[0], dtype=int)
+        # new_maximum_likelihood_index = np.ndarray(shape=data.shape[0], dtype=int)
 
+        previous_likelihood_sum = 0
         for iter in range(self.max_iter):
-            if self.verbose:
-                print('%d iter start. time:%.2f' % (iter, time()-curTime))
             likelihood_T = np.ndarray(shape=(k, len(data)), dtype=float)
             for i in range(k):
                 likelihood_T[i] = multivariate_normal.pdf(data, mean=self.means[i], cov=self.covariances[i])
@@ -106,8 +112,6 @@ class EM:
             evidence = np.dot(self.likelihood, self.weights)  # size n of p(x_i).
             for i in range(k):
                 self.posterior[i] = np.multiply(likelihood_T[i], self.weights[i]) / evidence
-            if self.verbose:
-                print('%d iter start. time:%.2f' % (iter, time() - curTime))
             # for i in range(k):
             #     for j in range(len(data)):
             #         evidence = np.dot(self.likelihood[j], self.weight)
@@ -128,16 +132,20 @@ class EM:
             #     self.weights[i] = posterior_sum / len(data)
 
             weights, means, covariances = _estimate_gaussian_parameters(data, self.posterior.T)
-            weights /= n_samples
             self.set_parameters(means, covariances, weights)
 
             # log likelihood
-        #     if iter == 0:
-        #         # for i in range(len(data)):
-        #         #     old_maximum_likelihood_index[i] = np.argmax(self.likelihood[i])
-        #         old_maximum_likelihood_index = np.argmax(self.likelihood, axis=1)
-        #         old_likelihood = self.likelihood.copy()
-        #
+            if iter == 0:
+                previous_likelihood_sum = log_likelihood_sum(self.likelihood, weights)
+            else:
+                current_likelihood_sum = log_likelihood_sum(self.likelihood, weights)
+                change = abs(current_likelihood_sum - previous_likelihood_sum)
+                # if abs(current_likelihood_sum - previous_likelihood_sum)  < 0.2:
+                previous_likelihood_sum = current_likelihood_sum
+                if change <= self.threshold:
+                    self.print_verbose(iter, change, end=True)
+                    break
+                self.print_verbose(iter, change)
         #     else:
         #         for i in range(len(data)):
         #             new_maximum_likelihood_index[i] = np.argmax(self.likelihood[i])
